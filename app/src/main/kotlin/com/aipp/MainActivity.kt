@@ -9,47 +9,55 @@ import com.aipp.core.logging.StructuredLogger
  * Main activity - entry point of the application.
  * 
  * Responsibilities:
- * - Initialize subsystems
+ * - Initialize subsystems on startup
  * - Set up Compose UI
  * - Emit startup logs
+ * - NO network calls, NO cloud dependencies
  */
 class MainActivity : ComponentActivity() {
+    
+    private lateinit var logger: StructuredLogger
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Initialize subsystems
-        SubsystemManager.initialize(this)
-        val logger = SubsystemManager.getLogger()
-        
-        logger.info("MAIN_ACTIVITY", "onCreate called")
-        logger.info("MAIN_ACTIVITY", "Setting up Compose UI")
-        
-        // Set Compose content
-        setContent {
-            MainActivityScreen(logger)
+        try {
+            // Initialize subsystems
+            SubsystemManager.initialize(this)
+            logger = SubsystemManager.getLogger()
+            
+            logger.info("MAIN_ACTIVITY", "onCreate: App initializing")
+            logger.info("MAIN_ACTIVITY", "onCreate: Setting Compose content")
+            
+            // Set Compose content
+            setContent {
+                MainActivityScreen(logger)
+            }
+            
+            logger.info("MAIN_ACTIVITY", "onCreate: Compose UI set")
+        } catch (e: Exception) {
+            logger.error("MAIN_ACTIVITY", "onCreate: Failed to initialize", e)
+            throw e
         }
-        
-        logger.info("MAIN_ACTIVITY", "UI rendering started")
     }
     
     override fun onStart() {
         super.onStart()
-        SubsystemManager.getLogger().debug("MAIN_ACTIVITY", "onStart called")
+        logger.debug("MAIN_ACTIVITY", "onStart called")
     }
     
     override fun onResume() {
         super.onResume()
-        SubsystemManager.getLogger().debug("MAIN_ACTIVITY", "onResume called")
+        logger.debug("MAIN_ACTIVITY", "onResume called")
     }
     
     override fun onPause() {
         super.onPause()
-        SubsystemManager.getLogger().debug("MAIN_ACTIVITY", "onPause called")
+        logger.debug("MAIN_ACTIVITY", "onPause called")
     }
     
     override fun onDestroy() {
         super.onDestroy()
-        SubsystemManager.getLogger().info("MAIN_ACTIVITY", "onDestroy called")
+        logger.info("MAIN_ACTIVITY", "onDestroy called")
     }
 }

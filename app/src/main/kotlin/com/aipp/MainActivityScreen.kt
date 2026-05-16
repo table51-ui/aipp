@@ -12,19 +12,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aipp.core.logging.StructuredLogger
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.*
 
 /**
  * Main UI screen using Jetpack Compose.
  * 
  * Displays:
  * - App status
- * - Real-time logs
- * - Initialization state
+ * - Real-time logs with color-coding
  */
 @Composable
 fun MainActivityScreen(logger: StructuredLogger) {
     
-    // State
+    // State for logs and status
     var logs by remember { mutableStateOf(emptyList<StructuredLogger.LogEntry>()) }
     var appStatus by remember { mutableStateOf("Initializing...") }
     
@@ -32,12 +33,18 @@ fun MainActivityScreen(logger: StructuredLogger) {
     LaunchedEffect(Unit) {
         while (true) {
             logs = logger.getBufferedLogs()
-            appStatus = "Running - ${logs.size} logs"
+            appStatus = "Running - ${logs.size} logs collected"
             delay(500)
         }
     }
     
-    MaterialTheme {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Color(0xFF6200EE),
+            surface = Color(0xFF121212),
+            background = Color(0xFF121212)
+        )
+    ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = Color(0xFF121212)
@@ -47,21 +54,24 @@ fun MainActivityScreen(logger: StructuredLogger) {
                     .fillMaxSize()
                     .padding(8.dp)
             ) {
-                // Header
+                // Header Card
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp)
+                        .padding(bottom = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFF1E1E1E)
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp)
                     ) {
                         Text(
-                            text = "AIPP - Offline-First Mobile AI Engineering Workspace",
-                            fontSize = 18.sp,
-                            color = Color.White,
-                            modifier = Modifier.padding(bottom = 4.dp)
+                            text = "AIPP - Offline-First Engineering Workspace",
+                            fontSize = 16.sp,
+                            color = Color.White
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = appStatus,
                             fontSize = 12.sp,
@@ -70,23 +80,24 @@ fun MainActivityScreen(logger: StructuredLogger) {
                     }
                 }
                 
-                // Logs
+                // Logs Section Label
                 Text(
                     text = "Runtime Logs (${logs.size} entries)",
-                    fontSize = 14.sp,
-                    color = Color.White,
+                    fontSize = 13.sp,
+                    color = Color(0xFFB0BEC5),
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
                 
+                // Logs List
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .background(Color(0xFF1E1E1E))
+                        .background(Color(0xFF0D0D0D))
                         .padding(4.dp)
                 ) {
-                    items(logs) { entry ->
-                        LogEntryView(entry)
+                    items(logs) { logEntry ->
+                        LogLine(logEntry)
                     }
                 }
             }
@@ -94,20 +105,27 @@ fun MainActivityScreen(logger: StructuredLogger) {
     }
 }
 
+/**
+ * Single log line component
+ */
 @Composable
-fun LogEntryView(entry: StructuredLogger.LogEntry) {
+fun LogLine(entry: StructuredLogger.LogEntry) {
     val levelColor = when (entry.level) {
-        StructuredLogger.LogLevel.DEBUG -> Color(0xFF90CAF9)
-        StructuredLogger.LogLevel.INFO -> Color(0xFF81C784)
-        StructuredLogger.LogLevel.WARN -> Color(0xFFFFB74D)
-        StructuredLogger.LogLevel.ERROR -> Color(0xFFE57373)
+        StructuredLogger.LogLevel.DEBUG -> Color(0xFF90CAF9)   // Blue
+        StructuredLogger.LogLevel.INFO -> Color(0xFF81C784)    // Green
+        StructuredLogger.LogLevel.WARN -> Color(0xFFFFB74D)    // Orange
+        StructuredLogger.LogLevel.ERROR -> Color(0xFFE57373)   // Red
     }
     
+    val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+    val timeStr = timeFormat.format(Date(entry.timestamp))
+    val logText = "[$timeStr] [${entry.subsystem}] [${entry.level}] ${entry.message}"
+    
     Text(
-        text = entry.toString(),
+        text = logText,
         fontSize = 10.sp,
         color = levelColor,
-        modifier = Modifier.padding(vertical = 2.dp),
-        maxLines = 3
+        modifier = Modifier.padding(vertical = 1.dp),
+        maxLines = 2
     )
 }
