@@ -41,6 +41,7 @@ dependencies {
     // AndroidX
     implementation(libs.androidx.core)
     implementation(libs.androidx.appcompat)
+    implementation("androidx.documentfile:documentfile:1.1.1")
     
     // Jetpack Compose
     implementation(platform(libs.compose.bom))
@@ -49,9 +50,15 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.runtime)
     
+    // Material Icons
+    implementation("androidx.compose.material:material-icons-extended:1.6.0")
+    
     // Lifecycle & Coroutines
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
+    
+    // Activity (for result contracts)
+    implementation("androidx.activity:activity-compose:1.8.1")
 }
