@@ -1,60 +1,60 @@
 package com.aipp
 
-import com.aipp.core.logging.StructuredLogger
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Simple dependency injection container.
+ * Lightweight dependency injection and service registry.
  * 
- * Design:
- * - No frameworks (no Hilt, no Dagger)
- * - No reflection or annotation processing
- * - Constructor injection only
- * - Thread-safe singleton pattern
- * 
- * Usage:
- *   SubsystemManager.initialize(context)
- *   val logger = SubsystemManager.getLogger()
+ * No reflection, no annotations, no framework.
+ * Single authority for all subsystems.
  */
 object SubsystemManager {
     
-    @Volatile
-    private var logger: StructuredLogger? = null
-    
-    private val lock = Any()
+    private val services = ConcurrentHashMap<String, Any>()
     
     /**
-     * Initialize all subsystems.
-     * Safe to call multiple times (idempotent).
+     * Register a service instance
      */
-    fun initialize(context: android.content.Context) {
-        synchronized(lock) {
-            if (logger != null) {
-                return // Already initialized
-            }
-            
-            // Create and initialize logger
-            logger = StructuredLogger()
-            logger!!.initialize(context.cacheDir)
-            logger!!.info("SUBSYSTEM_MANAGER", "Subsystems initialized")
-        }
+    fun <T : Any> register(name: String, instance: T): T {
+        services[name] = instance
+        return instance
     }
     
     /**
-     * Get logger instance.
-     * Throws if not initialized.
+     * Retrieve a registered service
      */
-    fun getLogger(): StructuredLogger {
-        return logger ?: throw IllegalStateException(
-            "SubsystemManager not initialized. Call initialize(context) first."
-        )
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> get(name: String): T? {
+        return services[name] as? T
     }
     
     /**
-     * Reset to initial state (for testing only).
+     * Retrieve a service or throw
      */
-    fun reset() {
-        synchronized(lock) {
-            logger = null
-        }
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> getRequired(name: String): T {
+        return services[name] as? T
+            ?: throw NoSuchElementException("Service '$name' not registered")
+    }
+    
+    /**
+     * Check if service is registered
+     */
+    fun isRegistered(name: String): Boolean {
+        return services.containsKey(name)
+    }
+    
+    /**
+     * Get all registered service names
+     */
+    fun getRegisteredServices(): List<String> {
+        return services.keys.toList()
+    }
+    
+    /**
+     * Clear all services (testing only)
+     */
+    fun clear() {
+        services.clear()
     }
 }
