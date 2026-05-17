@@ -7,42 +7,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Represents an open editor tab.
+ * Represents a single open editor tab.
  */
 data class EditorTab(
     val id: String,
+    val uri: Uri,
     val fileName: String,
-    val fileUri: Uri,
     val content: String = "",
     val isLoading: Boolean = false,
-    val error: String? = null,
-    val language: String = detectLanguage(fileName)
-) {
-    companion object {
-        fun detectLanguage(fileName: String): String {
-            return when {
-                fileName.endsWith(".kt") -> "kotlin"
-                fileName.endsWith(".java") -> "java"
-                fileName.endsWith(".ts") -> "typescript"
-                fileName.endsWith(".tsx") -> "typescript"
-                fileName.endsWith(".js") -> "javascript"
-                fileName.endsWith(".jsx") -> "javascript"
-                fileName.endsWith(".xml") -> "xml"
-                fileName.endsWith(".json") -> "json"
-                fileName.endsWith(".gradle") -> "gradle"
-                fileName.endsWith(".gradle.kts") -> "kotlin"
-                fileName.endsWith(".py") -> "python"
-                fileName.endsWith(".sh") -> "bash"
-                fileName.endsWith(".md") -> "markdown"
-                fileName.endsWith(".yaml") || fileName.endsWith(".yml") -> "yaml"
-                else -> "text"
-            }
-        }
-    }
-}
+    val error: String? = null
+)
 
 /**
- * Manages open editor tabs and file content.
+ * Manages open files and editor tabs.
+ * 
+ * Responsibilities:
+ * - Read file content from workspace
+ * - Manage open tabs (open, close, switch)
+ * - Track active tab
+ * - Handle errors
  */
 class EditorManager(
     private val context: Context,
@@ -55,135 +38,135 @@ class EditorManager(
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
     
-    private val tabMap = mutableMapOf<String, EditorTab>()
-    
     /**
-     * Open a file in editor.
+     * Open a file in the editor.
+     * Creates a new tab or switches to existing tab.
      */
-    suspend fun openFile(fileUri: Uri, fileName: String) {
+    suspend fun openFile(uri: Uri, fileName: String) {
         try {
-            val tabId = fileUri.toString().hashCode().toString()
+            logger("EDITOR", "Opening file: $fileName")
             
-            // Check if already open
-            if (tabMap.containsKey(tabId)) {
+            val tabId = uri.toString()
+            val existingTab = _openTabs.value.find { it.id == tabId }
+            
+            if (existingTab != null) {
+                // Tab already open, just switch to it
                 _activeTabId.emit(tabId)
-                logger("EDITOR", "File already open: $fileName")
+                logger("EDITOR", "Switched to tab: $fileName")
                 return
             }
             
-            // Create loading tab
+            // Create new tab with loading state
             val loadingTab = EditorTab(
                 id = tabId,
+                uri = uri,
                 fileName = fileName,
-                fileUri = fileUri,
                 isLoading = true
             )
             
-            tabMap[tabId] = loadingTab
-            updateTabsFlow()
-            logger("EDITOR", "Loading file: $fileName")
+            val updatedTabs = _openTabs.value + loadingTab
+            _openTabs.emit(updatedTabs)
+            _activeTabId.emit(tabId)
             
             // Read file content
-            val content = readFileContent(fileUri)
+            val content = readFileContent(uri)
+            
             if (content != null) {
-                val loadedTab = loadingTab.copy(
+                // Success: update tab with content
+                val completedTab = EditorTab(
+                    id = tabId,
+                    uri = uri,
+                    fileName = fileName,
                     content = content,
                     isLoading = false
                 )
-                tabMap[tabId] = loadedTab
-                _activeTabId.emit(tabId)
-                updateTabsFlow()
-                logger("EDITOR", "File opened: $fileName (${content.length} chars)")
+                
+                val updatedWithContent = _openTabs.value.map {
+                    if (it.id == tabId) completedTab else it
+                }
+                _openTabs.emit(updatedWithContent)
+                logger("EDITOR", "File loaded: $fileName (${content.length} chars)")
             } else {
-                val errorTab = loadingTab.copy(
+                // Error: update tab with error state
+                val errorTab = EditorTab(
+                    id = tabId,
+                    uri = uri,
+                    fileName = fileName,
                     isLoading = false,
                     error = "Failed to read file"
                 )
-                tabMap[tabId] = errorTab
-                updateTabsFlow()
-                logger("EDITOR", "ERROR: Failed to read $fileName")
+                
+                val updatedWithError = _openTabs.value.map {
+                    if (it.id == tabId) errorTab else it
+                }
+                _openTabs.emit(updatedWithError)
+                logger("EDITOR", "Error reading file: $fileName")
             }
         } catch (e: Exception) {
-            logger("EDITOR", "ERROR opening file: ${e.message}")
+            logger("EDITOR", "Exception opening file: ${e.message}")
         }
     }
     
     /**
-     * Close a tab.
+     * Close a tab by ID.
      */
     suspend fun closeTab(tabId: String) {
-        tabMap.remove(tabId)
-        updateTabsFlow()
-        
-        // Switch to another tab if needed
-        if (_activeTabId.value == tabId) {
-            val nextTab = tabMap.values.firstOrNull()
-            _activeTabId.emit(nextTab?.id)
+        try {
+            val updatedTabs = _openTabs.value.filter { it.id != tabId }
+            _openTabs.emit(updatedTabs)
+            
+            // If closed tab was active, switch to another
+            if (_activeTabId.value == tabId) {
+                _activeTabId.emit(updatedTabs.firstOrNull()?.id)
+            }
+            
+            logger("EDITOR", "Tab closed: $tabId")
+        } catch (e: Exception) {
+            logger("EDITOR", "Exception closing tab: ${e.message}")
         }
-        
-        logger("EDITOR", "Tab closed: $tabId")
     }
     
     /**
-     * Switch active tab.
+     * Switch to a specific tab by ID.
      */
     suspend fun switchTab(tabId: String) {
-        if (tabMap.containsKey(tabId)) {
-            _activeTabId.emit(tabId)
-            logger("EDITOR", "Switched to tab: $tabId")
+        try {
+            if (_openTabs.value.any { it.id == tabId }) {
+                _activeTabId.emit(tabId)
+                logger("EDITOR", "Switched to tab: $tabId")
+            }
+        } catch (e: Exception) {
+            logger("EDITOR", "Exception switching tab: ${e.message}")
         }
-    }
-    
-    /**
-     * Get active tab content.
-     */
-    fun getActiveTab(): EditorTab? {
-        val activeId = _activeTabId.value ?: return null
-        return tabMap[activeId]
     }
     
     /**
      * Read file content from URI.
+     * Returns null if read fails.
      */
     private suspend fun readFileContent(uri: Uri): String? {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-            val content = inputStream.bufferedReader().use { it.readText() }
-            
-            // Limit to 1MB for safety
-            if (content.length > 1_000_000) {
-                logger("EDITOR", "WARNING: File too large, truncating to 1MB")
-                content.take(1_000_000)
-            } else {
-                content
-            }
+            val stream = context.contentResolver.openInputStream(uri) ?: return null
+            stream.bufferedReader().use { it.readText() }
         } catch (e: Exception) {
-            logger("EDITOR", "Error reading file: ${e.message}")
+            logger("EDITOR", "Error reading file content: ${e.message}")
             null
         }
     }
     
     /**
-     * Close all tabs.
+     * Get tab by ID.
      */
-    suspend fun closeAll() {
-        tabMap.clear()
+    fun getTab(tabId: String): EditorTab? {
+        return _openTabs.value.find { it.id == tabId }
+    }
+    
+    /**
+     * Clear all tabs.
+     */
+    suspend fun clearTabs() {
+        _openTabs.emit(emptyList())
         _activeTabId.emit(null)
-        updateTabsFlow()
-        logger("EDITOR", "All tabs closed")
-    }
-    
-    /**
-     * Get line count for a tab.
-     */
-    fun getLineCount(tabId: String): Int {
-        return tabMap[tabId]?.content?.lines()?.size ?: 0
-    }
-    
-    /**
-     * Update tabs flow
-     */
-    private suspend fun updateTabsFlow() {
-        _openTabs.emit(tabMap.values.toList())
+        logger("EDITOR", "All tabs cleared")
     }
 }
