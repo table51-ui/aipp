@@ -3,9 +3,11 @@ package com.aipp.workspace
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 /**
  * Represents a file or folder in the workspace.
@@ -42,11 +44,18 @@ enum class ProjectType {
  * 
  * Uses Android Storage Access Framework (SAF) for secure folder access.
  * No MANAGE_EXTERNAL_STORAGE permission required.
+ * 
+ * File I/O is offloaded to Dispatchers.IO for safety.
  */
 class WorkspaceManager(
     private val context: Context,
     private val logger: (tag: String, message: String) -> Unit
 ) {
+    
+    // Maximum safe file size: 1MB
+    companion object {
+        private const val MAX_FILE_SIZE = 1024L * 1024L // 1MB
+    }
     
     private val _selectedFolderUri = MutableStateFlow<Uri?>(null)
     val selectedFolderUri: StateFlow<Uri?> = _selectedFolderUri.asStateFlow()
@@ -180,14 +189,40 @@ class WorkspaceManager(
     
     /**
      * Read file content (for small files only).
+     * Enforces MAX_FILE_SIZE limit.
+     * 
+     * Executes on Dispatchers.IO to prevent main thread blocking.
      */
     suspend fun readFileContent(uri: Uri): String? {
-        return try {
-            val stream = context.contentResolver.openInputStream(uri) ?: return null
-            stream.bufferedReader().use { it.readText() }
-        } catch (e: Exception) {
-            logger("WORKSPACE", "Error reading file: ${e.message}")
-            null
+        return withContext(Dispatchers.IO) {
+            try {
+                val stream = context.contentResolver.openInputStream(uri) ?: return@withContext null
+                
+                // Read with size limit
+                stream.use { inputStream ->
+                    val buffer = ByteArray(8192)
+                    val output = StringBuilder()
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+                    
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        totalBytesRead += bytesRead
+                        
+                        if (totalBytesRead > MAX_FILE_SIZE) {
+                            logger("WORKSPACE", "File exceeds safe limit ($MAX_FILE_SIZE bytes), truncating")
+                            output.append(String(buffer, 0, bytesRead))
+                            break
+                        }
+                        
+                        output.append(String(buffer, 0, bytesRead))
+                    }
+                    
+                    output.toString()
+                }
+            } catch (e: Exception) {
+                logger("WORKSPACE", "Error reading file: ${e.message}")
+                null
+            }
         }
     }
     
