@@ -2,9 +2,11 @@ package com.aipp.editor
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 /**
  * Represents a single open editor tab.
@@ -26,11 +28,17 @@ data class EditorTab(
  * - Manage open tabs (open, close, switch)
  * - Track active tab
  * - Handle errors
+ * - Enforce file size limits for safety
  */
 class EditorManager(
     private val context: Context,
     private val logger: (tag: String, message: String) -> Unit
 ) {
+    
+    // Maximum safe file size: 1MB
+    companion object {
+        private const val MAX_FILE_SIZE = 1024L * 1024L // 1MB
+    }
     
     private val _openTabs = MutableStateFlow<List<EditorTab>>(emptyList())
     val openTabs: StateFlow<List<EditorTab>> = _openTabs.asStateFlow()
@@ -46,7 +54,7 @@ class EditorManager(
         try {
             logger("EDITOR", "Opening file: $fileName")
             
-            val tabId = uri.toString()
+            val tabId = uri.hashCode().toString()
             val existingTab = _openTabs.value.find { it.id == tabId }
             
             if (existingTab != null) {
@@ -142,15 +150,41 @@ class EditorManager(
     
     /**
      * Read file content from URI.
+     * Enforces MAX_FILE_SIZE limit.
      * Returns null if read fails.
+     * 
+     * Executes on Dispatchers.IO to prevent main thread blocking.
      */
     private suspend fun readFileContent(uri: Uri): String? {
-        return try {
-            val stream = context.contentResolver.openInputStream(uri) ?: return null
-            stream.bufferedReader().use { it.readText() }
-        } catch (e: Exception) {
-            logger("EDITOR", "Error reading file content: ${e.message}")
-            null
+        return withContext(Dispatchers.IO) {
+            try {
+                val stream = context.contentResolver.openInputStream(uri) ?: return@withContext null
+                
+                // Read with size limit
+                stream.use { inputStream ->
+                    val buffer = ByteArray(8192)
+                    val output = StringBuilder()
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+                    
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        totalBytesRead += bytesRead
+                        
+                        if (totalBytesRead > MAX_FILE_SIZE) {
+                            logger("EDITOR", "File exceeds safe limit ($MAX_FILE_SIZE bytes), truncating")
+                            output.append(String(buffer, 0, bytesRead))
+                            break
+                        }
+                        
+                        output.append(String(buffer, 0, bytesRead))
+                    }
+                    
+                    output.toString()
+                }
+            } catch (e: Exception) {
+                logger("EDITOR", "Error reading file content: ${e.message}")
+                null
+            }
         }
     }
     
